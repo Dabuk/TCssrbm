@@ -953,27 +953,10 @@ class WeightActs(Base):
             
             PyArrayObject* hid_C_view = 
                         (PyArrayObject*)PyArray_SwapAxes(%(hidacts)s, 0, 4);
-            hid_C_view = (PyArrayObject*)PyArray_SwapAxes(hid_C_view, 2, 3);
-            
-            PyArrayObject* hid_C = 
-                    (PyArrayObject*)PyArray_EMPTY(5, hid_C_view->dimensions,
-                                                  hid_C_view->descr->type_num,
-                                                  0);
-            
-            if(!hid_C) {
-                PyErr_SetString(PyExc_MemoryError, 
-                                "failed to alloc memory for hid_C");
-                Py_XDECREF(img_C);
-                %(fail)s;
-            }
-            
-            if(PyArray_CopyInto(hid_C, hid_C_view) != 0){
-                PyErr_SetString(PyExc_MemoryError, 
-                                "failed to copy data to hid_C");
-                Py_XDECREF(img_C);
-                Py_XDECREF(hid_C);
-                %(fail)s;            
-            }
+            PyArrayObject* hid_C_view2 = 
+                        (PyArrayObject*)PyArray_SwapAxes(hid_C_view, 2, 3);
+                                                             
+            PyArrayObject* hid_C = PyArray_GETCONTIGUOUS(hid_C_view2);
             
             dtype_%(output)s* hid_C_ptr = (dtype_%(output)s*)(hid_C->data);
             
@@ -987,6 +970,10 @@ class WeightActs(Base):
                                          PyArray_ITEMSIZE(hid_C);
             npy_intp hidC_hcols_stride = PyArray_STRIDE(hid_C, 0) /
                                          PyArray_ITEMSIZE(hid_C);
+                                         
+            // Free the temporary views
+            Py_XDECREF(hid_C_view);
+            Py_XDECREF(hid_C_view2);
         
         
             // Allocate variable used to call the BLAS function
@@ -1460,9 +1447,14 @@ class ImgActs(Base):
             
             PyArrayObject* hid_C_view = 
                         (PyArrayObject*)PyArray_SwapAxes(%(hidacts)s, 0, 3);
-            hid_C_view = (PyArrayObject*)PyArray_SwapAxes(hid_C_view, 2, 4);
+            PyArrayObject* hid_C_view2 = 
+                        (PyArrayObject*)PyArray_SwapAxes(hid_C_view, 2, 4);
             
-            PyArrayObject* hid_C = PyArray_GETCONTIGUOUS(hid_C_view);
+            PyArrayObject* hid_C = PyArray_GETCONTIGUOUS(hid_C_view2);
+            
+            // Free the temporary views
+            Py_XDECREF(hid_C_view);
+            Py_XDECREF(hid_C_view2);
             
             
             // Extract the arrays' strides
