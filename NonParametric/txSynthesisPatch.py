@@ -25,6 +25,7 @@ def getOutOfBoundSubArray(array, position, size):
     result_mask = numpy.zeros(size, numpy.uint8)
 
     ones = numpy.ones(size[2:])
+    
 
     for i in range(size[0]):
         for j in range(size[1]):
@@ -37,7 +38,7 @@ def getOutOfBoundSubArray(array, position, size):
             
                 result[i][j] = array[row][col]
                 result_mask[i][j] = ones
-
+                
     return (result, result_mask)
 
 
@@ -94,67 +95,44 @@ def generateWeightedNeighborhoodArray(size, full, inc, patchSize):
 
 # Defines and returns a theano function for calculating the neighborhood match
 # between a patch of noise and an array of sample patches
-def neighborhoodMatching(samples_value, samples_neigh_value,
-                         neighborhood_value):
+def neighborhoodMatching(samples_value, neighborhood_value):
 
     samples = theano.tensor.constant(samples_value, 'samples')
     noise = theano.tensor.tensor3('noise', 'int32')
 
-    samples_neighborhood = theano.tensor.constant(samples_neigh_value,
-                                                  'samples_neigh')
     noise_neighborhood = theano.tensor.tensor3('noise_neigh', 'int32')
 
     neighborhood = theano.tensor.constant(neighborhood_value, 'neighborhood')
 
-    mismatch = (samples - noise) * samples_neighborhood * noise_neighborhood * neighborhood
+    mismatch = (samples - noise) * noise_neighborhood * neighborhood
 
     output = theano.tensor.sum(mismatch ** 2, [2, 3, 4])
     best = theano.tensor.argmin(output)
 
     f = theano.function([noise, noise_neighborhood], best)
     return f
-
-
-"""
+    
+    
 # Defines and returns a theano function for calculating the neighborhood match
 # between a patch of noise and an array of sample patches
-def neighborhoodMatchingCreateSamples(sample, sampleSamplingOp, neighborhood_value):
+def neighborhoodMatching2(neighborhood_value):
 
-    samples_value = numpy.asarray([[sampleSamplingOp(sample,(i,j),neighborhood_value.shape)[0]
-                              for i in range(len(sample) - neighborhood_value.shape[0] + 1)]
-                             for j in range(len(sample[0]) - neighborhood_value.shape[1] + 1)])
+    tensor5 = theano.tensor.TensorType('uint8', (False,)*5)
 
-    samples = theano.tensor.constant(samples_value, 'samples')
+    samples = tensor5('samples')
+    noise = theano.tensor.tensor3('noise', 'int16')
 
-    del samples_value # Allow the GC to free the potentially massive amount of
-                      # memory used by the variable samples_value
-    gc.collect()
-
-
-    samples_neigh_value = numpy.asarray([[sampleSamplingOp(sample,(i,j),neighborhood_value.shape)[1]
-                              for i in range(len(sample) - neighborhood_value.shape[0] + 1)]
-                             for j in range(len(sample[0]) - neighborhood_value.shape[1] + 1)])
-
-    samples_neighborhood = theano.tensor.constant(samples_neigh_value, 'samples_neigh')
-
-    del samples_neigh_value # Allow the GC to free the potentially massive
-                            # amount of memory used by the variable
-                            # samples_neigh_value
-    gc.collect()
-
-
-    noise = theano.tensor.tensor3('noise', 'int32')
     noise_neighborhood = theano.tensor.tensor3('noise_neigh', 'int32')
+
     neighborhood = theano.tensor.constant(neighborhood_value, 'neighborhood')
 
-    mismatch = (samples - noise) * samples_neighborhood * noise_neighborhood * neighborhood
+    mismatch = (samples - noise) * noise_neighborhood * neighborhood
 
     output = theano.tensor.sum(mismatch ** 2, [2, 3, 4])
     best = theano.tensor.argmin(output)
 
-    f = theano.function([noise, noise_neighborhood], best)
-    return f
-"""
+    f = theano.function([samples, noise, noise_neighborhood], best)
+    return f    
 
 
 def synthesisTexture(sample, noise, neighborhood, sequential, wrap, patchSize,
@@ -198,20 +176,15 @@ def synthesisTexture(sample, noise, neighborhood, sequential, wrap, patchSize,
 
     noise_copy = numpy.copy(noise)
 
-    #neighMatchFn = neighborhoodMatchingCreateSamples(sample, arraySamplingOp, neighborhood)
-
-    # Presample every possible sub_array of the same size as neighborhood from the samble image.
-    # It will save a LOT of time later
-    samples = numpy.asarray([[arraySamplingOp(sample,(i,j),neighborhood.shape)[0]
+    # Presample every possible sub_array of the same size as neighborhood from the sample image.
+    # It will save a LOT of time later              
+    samples = numpy.asarray([[sample[i:i+neighborhood.shape[0],j:j+neighborhood.shape[1]]
                               for i in range(len(sample) - neighborhood.shape[0] + 1)]
                              for j in range(len(sample[0]) - neighborhood.shape[1] + 1)])
-
-    samplesMask = numpy.asarray([[arraySamplingOp(sample,(i,j),neighborhood.shape)[1]
-                                  for i in range(len(sample) - neighborhood.shape[0] + 1)]
-                                 for j in range(len(sample[0]) - neighborhood.shape[1] + 1)])
-
+    
     # Compile the theano function for neighborhood matching
-    neighMatchFn = neighborhoodMatching(samples, samplesMask, neighborhood)
+    #neighMatchFn = neighborhoodMatching(samples, neighborhood)
+    neighMatchFn = neighborhoodMatching2(neighborhood)
 
     # Compute utility values for patch matching
     nb_row_noise = len(noise_copy)
@@ -235,7 +208,14 @@ def synthesisTexture(sample, noise, neighborhood, sequential, wrap, patchSize,
                                                     neighborhood.shape)
 
             # Find the nearest neighbor in the sample image
-            bestNeigh = neighMatchFn(noiseNeigh, noiseMask)
+            from datetime import datetime
+            start = datetime.now()
+            
+            #bestNeigh = neighMatchFn(noiseNeigh, noiseMask)
+            bestNeigh = neighMatchFn(samples, noiseNeigh, noiseMask)
+            
+            end = datetime.now()
+            print (end - start)
 
             bestSample = samples[bestNeigh / samples.shape[1],
                                  bestNeigh % samples.shape[1]]
@@ -287,7 +267,7 @@ def synthesisTexture(sample, noise, neighborhood, sequential, wrap, patchSize,
         improvementNeigh = numpy.ones((regionSize, regionSize, 1), 
                                       dtype='int32')
 
-        for noImprovement in range(100):
+        for noImprovement in range(0):
 
             # Find the worst region in the texture
             worstRegionCoord = (-1, -1)
@@ -362,48 +342,47 @@ def mergePatch(texture, seamMap, seamMapInfo, initMap, sourceMap, patch,
 
             # Check if the pixel is part of the overlap region
             if initMap[row, col] == 1:
+                
+                # Compute information on the pixel's neighbors
+                topNeighInTexture = row > 0
+                downNeighInTexture = row < texture.shape[0] - 1
+                leftNeighInTexture = col > 0
+                rightNeighInTexture = col < texture.shape[1] - 1
+                        
+                topNeighInPatch = row > x
+                downNeighInPatch = row < x + patch.shape[0] - 1
+                leftNeighInPatch = col > y
+                rightNeighInPatch = col < y + patch.shape[1] - 1
+                    
+                topNeighInOverlap = (topNeighInTexture and
+                                     topNeighInPatch and
+                                     initMap[row - 1, col])
+                downNeighInOverlap = (downNeighInTexture and 
+                                      downNeighInPatch and
+                                      initMap[row + 1, col])
+                leftNeighInOverlap = (leftNeighInTexture and 
+                                      leftNeighInPatch and
+                                      initMap[row, col - 1])
+                rightNeighInOverlap = (rightNeighInTexture and 
+                                       rightNeighInPatch and
+                                       initMap[row, col + 1])
 
                  # The texture is under construction
-                if overlapMask.sum() < patch.size:
+                if initMap.sum() < initMap.size:          
 
                     # Check if the pixel should be connected to the source
                     # node
-                    if ((row == x and row != 0) or
-                        (col == y and col != 0)):
+                    connectToA = ((row == x and row != 0) or
+                                  (col == y and col != 0))
+                    
+                    if connectToA:
                         add_edge(g, 'A', nameFromRowCol(row, col),
                                  capacity=999999.0)
 
                     # Check if the pixel should be connected to the target
                     # node
-                    if (initMap.shape[0] > row and
-                        initMap.shape[1] > col + 1 and
-                        patch.shape[0] > row - x and
-                        patch.shape[1] > col + 1 - y):
-
-                        rightNeigh = initMap[row, col + 1]
-                    else:
-                        rightNeigh = -1
-
-                    if (initMap.shape[0] > row + 1 and
-                        initMap.shape[1] > col and
-                        patch.shape[0] > row + 1 - x and
-                        patch.shape[1] > col - y):
-
-                        downNeigh = initMap[row + 1, col]
-                    else:
-                        downNeigh = -1
-
-                    if (initMap.shape[0] > row + 1 and
-                        initMap.shape[1] > col + 1 and
-                        patch.shape[0] > row + 1 - x and
-                        patch.shape[1] > col + 1 - y):
-
-                        downRightNeigh = initMap[row + 1, col + 1]
-                    else:
-                        downRightNeigh = -1
-
-                    if (rightNeigh == 0 or downNeigh == 0 or
-                        downRightNeigh == 0):
+                    if (not connectToA and 
+                        (not rightNeighInOverlap or not downNeighInOverlap)):
                         add_edge(g, 'B', nameFromRowCol(row, col),
                                  capacity=999999.0)
 
@@ -412,45 +391,15 @@ def mergePatch(texture, seamMap, seamMapInfo, initMap, sourceMap, patch,
                 else:
 
                     # Check if the pixel should be connected to the source node
-                    if (row == x or row == x + patch.shape[0] - 1 or
-                        col == y or col == y + patch.shape[1] - 1):
-
+                    connectToA = (row == x or row == x + patch.shape[0] - 1 or
+                                  col == y or col == y + patch.shape[1] - 1)
+                    
+                    if connectToA:
                         add_edge(g, 'A', nameFromRowCol(row, col),
                                  capacity=999999.0)
-
-                    """
-                    # Check if the pixel should be connected to the target node
-                    if (row == x + patch.shape[0] / 2 and
-                        col == y + patch.shape[1] / 2):
-
-                        add_edge(g, 'B', nameFromRowCol(row, col),
-                                 capacity=999999.0)
-                    """
-
-                    # Check if the pixel has a right neighbor in the overlap
-                    # region.
-                    if (initMap.shape[0] > row and
-                        initMap.shape[1] > col + 1 and
-                        patch.shape[0] > row - x and
-                        patch.shape[1] > col + 1 - y):
-
-                        rightNeigh = initMap[row, col + 1]
-                    else:
-                        rightNeigh = -1
-
-                    # Check if the pixel has a bottom neighbor in the overlap
-                    # region.
-                    if (initMap.shape[0] > row + 1 and
-                        initMap.shape[1] > col and
-                        patch.shape[0] > row + 1 - x and
-                        patch.shape[1] > col - y):
-
-                        downNeigh = initMap[row + 1, col]
-                    else:
-                        downNeigh = -1
-
+                                 
                 # Connect the pixel to its right neighbor, if applicable
-                if rightNeigh == 1:
+                if rightNeighInOverlap == 1:
 
                     # If there is already a seam between the pixel and it's
                     # right neighbor, add a special "seam node" to the graph.
@@ -466,7 +415,7 @@ def mergePatch(texture, seamMap, seamMapInfo, initMap, sourceMap, patch,
                         seamNodeName = ("seam " + nameFromRowCol(row, col) + 
                                         " " + nameFromRowCol(row, col + 1))
                            
-                        add_edge(g,seamNodeName, 'B', capacity=seamValue)
+                        add_edge(g, seamNodeName, 'B', capacity=seamValue)
                         
                         add_edge(g,seamNodeName, nameFromRowCol(row, col),
                                    capacity=m(seamInfo[0], 
@@ -501,7 +450,7 @@ def mergePatch(texture, seamMap, seamMapInfo, initMap, sourceMap, patch,
                                           
 
                 # Connect the pixel to its bottom neighbor, if applicable
-                if downNeigh == 1:
+                if downNeighInOverlap == 1:
                     
                     # If there is already a seam between the pixel and it's
                     # bottom neighbor, add a special "seam node" to the graph.
@@ -552,22 +501,48 @@ def mergePatch(texture, seamMap, seamMapInfo, initMap, sourceMap, patch,
                                           patch[row + 1 - x, col - y]))
                     """
 
-    # Compute max-flow min-cut
-    flow = networkx.ford_fulkerson_flow(g, 'A', 'B')
+    if 'B' in g:
 
-    # Compute the auxiliary graph and populate it with edges from the original
-    # graph whose capacity are NOT saturated by the flow computed in the
-    # max-flow algorithm.
-    g_aux = networkx.Graph()
+        # Compute max-flow min-cut
+        try:
+            flow = networkx.ford_fulkerson_flow(g, 'A', 'B')
+        except:
+            import pdb
+            pdb.set_trace()
 
-    for edge in g.edges(data=True):
-        if (edge[2]['capacity'] - flow[edge[0]][edge[1]] >= 1e-10):
-            g_aux.add_edge(edge[0], edge[1])
+        # Compute the auxiliary graph and populate it with edges from the original
+        # graph whose capacity are NOT saturated by the flow computed in the
+        # max-flow algorithm.
+        g_aux = networkx.Graph()
 
-    # Partition the auxiliary graph according to which nodes are connected to
-    # the source node and which are connected to the target node.
-    sourcePartition = set(networkx.single_source_shortest_path(g_aux, 'A'))
-    targetPartition = set(networkx.single_source_shortest_path(g_aux, 'B'))
+        for edge in g.edges(data=True):                
+            if (edge[2]['capacity'] - flow[edge[0]][edge[1]] >= 1e-10):
+                g_aux.add_edge(edge[0], edge[1])
+
+        # Partition the auxiliary graph according to which nodes are connected to
+        # the source node and which are connected to the target node.
+        if 'A' in g_aux:
+            sourcePartition = set(networkx.single_source_shortest_path(g_aux, 'A'))
+        else:
+            sourcePartition = set()
+            
+        if 'B' in g_aux:
+            targetPartition = set(networkx.single_source_shortest_path(g_aux, 'B'))
+        else:
+            targetPartition = set() 
+            
+    else:
+        sourcePartition = set(networkx.single_source_shortest_path(g, 'A'))
+        targetPartition = set()
+        
+        
+        
+    """
+    if 'B' in g:
+    
+    
+    """
+    
 
     # Ensure that the graph has been correctly separated in two
     # distinct partitions   
@@ -799,9 +774,11 @@ def testTextureSynthesis(datasetName, textureName, textureSize, dictOrder,
         # as a numpy array
         noiseArrSize = 400
         noise_array = None
+                
         if inputValue:
             # Generate input noise
             noise_array = numpy.random.randint(0, 256, (noiseArrSize, noiseArrSize, nbColorChannels))
+            noise_array = numpy.asarray(noise_array, dtype='uint8')
         else:
             # Load a sample generated by the model
             noise_filename = "./Samples_FullScale/" + datasetName + textureName + "/sample.png"
@@ -839,7 +816,7 @@ def testTextureSynthesis(datasetName, textureName, textureSize, dictOrder,
         # Perform texture synthesis and save the result in a file whose name
         # contains the name of the parameter keys for easy identification
         newTexture = noise_array
-
+        
         for i in range(1, nbItt + 1):
             newTexture, extraData = synthesisTexture(train_img_array,
                                                      newTexture,
