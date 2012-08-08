@@ -63,18 +63,19 @@ def getWrappingSubArray(array, position, size):
 
     return (result, result_mask)
 
-
-def generateWeightedNeighborhoodArray(size, full, inc, patchSize):
+   
+def generateWeightedNeighborhoodArray(size, full, inc=0, patchSize=1,
+                                      mergeSize=0):
 
     # Generate the basic neighborhood layout with 1s and 0s.
     if full:
         result = numpy.ones(size, numpy.int32)
     else:
         result = numpy.zeros(size, numpy.int32)
-        result[:size[0] / 2 - (patchSize - 1) / 2] += 1
-        result[size[0] / 2 - (patchSize - 1) / 2:
+        result[:size[0] / 2 - (patchSize - 1) / 2 + mergeSize] += 1
+        result[size[0] / 2 - (patchSize - 1) / 2 + mergeSize:
                size[0] / 2 - (patchSize - 1) / 2 + patchSize,
-               :size[1] / 2 - (patchSize - 1) / 2] += 1
+               :size[1] / 2 - (patchSize - 1) / 2 + mergeSize] += 1
 
     # Increment the weights according to inc's value
     for i in range(min(size[0] / 2, size[1] / 2)):
@@ -156,11 +157,6 @@ def synthesisTexture(sample, noise, neighborhood, sequential, wrap, patchSize,
                    the same time.
     """
 
-    # NOTE ALERT TODO WARNING TEST : temporary modification for tests
-    neighborhood = numpy.zeros(neighborhood.shape)
-    neighborhood[:mergeSize, :] = 1
-    neighborhood[:, :mergeSize] = 1
-
     arraySamplingOp = None
     if wrap:
         arraySamplingOp = getWrappingSubArray
@@ -171,8 +167,8 @@ def synthesisTexture(sample, noise, neighborhood, sequential, wrap, patchSize,
     initMap = numpy.zeros(noise.shape[:2], numpy.int32)
     sourceMap = numpy.zeros(noise.shape[:2] + (3,), numpy.int32)
     seamMap = numpy.zeros((noise.shape[0] * 2, noise.shape[1] * 2), numpy.int32)
-    seamMapInfo = [[None for i in range(noise.shape[1] * 2)]
-                   for j in range(noise.shape[0] * 2)]
+    seamMapInfo = numpy.asarray([[None for i in range(noise.shape[1] * 2)]
+                                 for j in range(noise.shape[0] * 2)])
 
     noise_copy = numpy.copy(noise)
 
@@ -256,8 +252,7 @@ def synthesisTexture(sample, noise, neighborhood, sequential, wrap, patchSize,
         row_noise += patchSize - mergeSize
 
     # Display the pre-"improvement phase" quality of the generated texture
-    quality = (computeSeamTotal(seamMap, seamMapInfo, 1),
-               computeSeamTotal(seamMap, seamMapInfo, 2))
+    quality = (seamMap.sum(), (seamMap ** 2).sum())
     print "Pre-improvement : " + str(quality)
 
     # Iteratively improve the generated texture
@@ -267,29 +262,29 @@ def synthesisTexture(sample, noise, neighborhood, sequential, wrap, patchSize,
         improvementNeigh = numpy.ones((regionSize, regionSize, 1), 
                                       dtype='int32')
 
-        for noImprovement in range(0):
+        for noImprovement in range(50):
 
             # Find the worst region in the texture
             worstRegionCoord = (-1, -1)
             worstSeamTotal = -1
-            
+                                    
             for row in range(newPixelValues.shape[0] - regionSize):
                 for col in range(newPixelValues.shape[1] - regionSize):
-                                                                                   
-                    total = computeSeamTotalRegion(seamMap, seamMapInfo, row, 
-                                                   col, regionSize, 1)
+                                                   
+                    total = seamMap[2 * row:2 * (row + regionSize),
+                                    2 * col:2 * (col + regionSize)].sum()
 
                     if total > worstSeamTotal:
                         worstRegionCoord = (row, col)
                         worstSeamTotal = total
-                              
+                                    
             worstRegion = arraySamplingOp(newPixelValues,
                                           (worstRegionCoord[0] - neighborhood.shape[0] / 2 + half_patch_size,
                                            worstRegionCoord[1] - neighborhood.shape[1] / 2 + half_patch_size),
                                           neighborhood.shape)[0]
                                           
             # Find the best patch in the swatch
-            bestNeigh = neighMatchFn(worstRegion, improvementNeigh)
+            bestNeigh = neighMatchFn(samples, worstRegion, improvementNeigh)
 
             bestSample = samples[bestNeigh / samples.shape[1],
                                  bestNeigh % samples.shape[1]]
@@ -305,18 +300,11 @@ def synthesisTexture(sample, noise, neighborhood, sequential, wrap, patchSize,
                        worstRegionCoord[1])
 
             # Display the new quality of the texture after the improvement
-            quality = (computeSeamTotal(seamMap, seamMapInfo, 1),
-                       computeSeamTotal(seamMap, seamMapInfo, 2))
+            quality = (seamMap.sum(), (seamMap ** 2).sum())
             print "Improvement #" + str(noImprovement) + " : " + str(quality)
             
             
             print worstRegionCoord
-            """
-            for i in range(8):
-                for j in range(8):
-                    seamMap[(worstRegionCoord[0]+i)*2+1, (worstRegionCoord[1]+j)*2+1] = 20000.0
-                    seamMapInfo[(worstRegionCoord[0]+i)*2+1][(worstRegionCoord[1]+j)*2+1] = (0,0,0,0)
-            """
 
     return newPixelValues, [sourceMap, seamMap, seamMapInfo]
 
@@ -408,10 +396,10 @@ def mergePatch(texture, seamMap, seamMapInfo, initMap, sourceMap, patch,
                     # simply add an edge between the pixel and its neighbor.
 
 
-                    if(seamMapInfo[row * 2][col * 2 + 1] != None):
+                    if(seamMapInfo[row * 2, col * 2 + 1] != None):
 
                         seamValue = seamMap[row * 2, col * 2 + 1]
-                        seamInfo = seamMapInfo[row * 2][col * 2 + 1]
+                        seamInfo = seamMapInfo[row * 2, col * 2 + 1]
                         seamNodeName = ("seam " + nameFromRowCol(row, col) + 
                                         " " + nameFromRowCol(row, col + 1))
                            
@@ -460,10 +448,10 @@ def mergePatch(texture, seamMap, seamMapInfo, initMap, sourceMap, patch,
                     # neighbor.
                     
                     
-                    if(seamMapInfo[row * 2 + 1][col * 2] != None):
+                    if(seamMapInfo[row * 2 + 1, col * 2] != None):
                         
                         seamValue = seamMap[row * 2 + 1, col * 2]
-                        seamInfo = seamMapInfo[row * 2 + 1][col * 2]
+                        seamInfo = seamMapInfo[row * 2 + 1, col * 2]
                         seamNodeName = ("seam " + nameFromRowCol(row, col) + 
                                         " " + nameFromRowCol(row + 1, col))
                            
@@ -534,15 +522,6 @@ def mergePatch(texture, seamMap, seamMapInfo, initMap, sourceMap, patch,
     else:
         sourcePartition = set(networkx.single_source_shortest_path(g, 'A'))
         targetPartition = set()
-        
-        
-        
-    """
-    if 'B' in g:
-    
-    
-    """
-    
 
     # Ensure that the graph has been correctly separated in two
     # distinct partitions   
@@ -565,7 +544,7 @@ def mergePatch(texture, seamMap, seamMapInfo, initMap, sourceMap, patch,
                     # Update the seam between this pixel and its top neighbor
                     if nameFromRowCol(row - 1, col) in targetPartition:
                         seamMap[row * 2 - 1, col * 2] = 0.0
-                        seamMapInfo[row * 2 - 1][col * 2] = None
+                        seamMapInfo[row * 2 - 1, col * 2] = None
                     else:
 
                         if row > x and initMap[row - 1, col]:
@@ -574,7 +553,7 @@ def mergePatch(texture, seamMap, seamMapInfo, initMap, sourceMap, patch,
                                                               oldPatch[row - x,col - y],
                                                               patch[row - x,col - y])
 
-                            seamMapInfo[row * 2 - 1][col * 2] = (oldPatch[row - 1 - x,col - y],
+                            seamMapInfo[row * 2 - 1, col * 2] = (oldPatch[row - 1 - x,col - y],
                                                                  patch[row - 1 - x,col - y],
                                                                  oldPatch[row - x,col - y],
                                                                  patch[row - x,col - y])
@@ -583,16 +562,16 @@ def mergePatch(texture, seamMap, seamMapInfo, initMap, sourceMap, patch,
                     # neighbor
                     if nameFromRowCol(row + 1, col) in targetPartition:
                         seamMap[row * 2 + 1, col * 2] = 0.0
-                        seamMapInfo[row * 2 + 1][col * 2] = None
+                        seamMapInfo[row * 2 + 1, col * 2] = None
                     else:
 
                         if row < x + patch.shape[0] - 1 and initMap[row+1, col]:
-                            seamMap[row*2+1,col*2] = m(oldPatch[row-x,col-y],
-                                                       patch[row-x,col-y],
-                                                       oldPatch[row+1-x,col-y],
-                                                       patch[row+1-x,col-y])
+                            seamMap[row*2+1, col*2] = m(oldPatch[row-x,col-y],
+                                                        patch[row-x,col-y],
+                                                        oldPatch[row+1-x,col-y],
+                                                        patch[row+1-x,col-y])
 
-                            seamMapInfo[row*2+1][col*2] = (oldPatch[row-x,col-y],
+                            seamMapInfo[row*2+1, col*2] = (oldPatch[row-x,col-y],
                                                            patch[row-x,col-y],
                                                            oldPatch[row+1-x,col-y],
                                                            patch[row+1-x,col-y])
@@ -600,15 +579,15 @@ def mergePatch(texture, seamMap, seamMapInfo, initMap, sourceMap, patch,
                     # Update the seam between this pixel and its left neighbor
                     if nameFromRowCol(row, col - 1) in targetPartition:
                         seamMap[row * 2, col * 2 - 1] = 0.0
-                        seamMapInfo[row * 2][col * 2 - 1] = None
+                        seamMapInfo[row * 2, col * 2 - 1] = None
                     else:
                         if col > y and initMap[row, col - 1]:
-                            seamMap[row*2,col*2-1] = m(oldPatch[row-x,col-1-y],
-                                                       patch[row-x,col-1-y],
-                                                       oldPatch[row-x,col-y],
-                                                       patch[row-x,col-y])
+                            seamMap[row*2, col*2-1] = m(oldPatch[row-x,col-1-y],
+                                                        patch[row-x,col-1-y],
+                                                        oldPatch[row-x,col-y],
+                                                        patch[row-x,col-y])
 
-                            seamMapInfo[row*2][col*2-1] = (oldPatch[row-x,col-1-y],
+                            seamMapInfo[row*2, col*2-1] = (oldPatch[row-x,col-1-y],
                                                            patch[row-x,col-1-y],
                                                            oldPatch[row-x,col-y],
                                                            patch[row-x,col-y])
@@ -616,17 +595,17 @@ def mergePatch(texture, seamMap, seamMapInfo, initMap, sourceMap, patch,
                     # Update the seam between this pixel and its right neighbor
                     if nameFromRowCol(row, col + 1) in targetPartition:
                         seamMap[row * 2, col * 2 + 1] = 0.0
-                        seamMapInfo[row * 2][col * 2 + 1] = None
+                        seamMapInfo[row * 2, col * 2 + 1] = None
                     else:
                         if (col < y + patch.shape[1] - 1 and
                             initMap[row, col + 1]):
 
-                            seamMap[row*2,col*2+1] = m(patch[row-x,col-y],
-                                                       oldPatch[row-x,col-y],
-                                                       patch[row-x,col+1-y],
-                                                       oldPatch[row-x,col+1-y])
+                            seamMap[row*2, col*2+1] = m(patch[row-x,col-y],
+                                                        oldPatch[row-x,col-y],
+                                                        patch[row-x,col+1-y],
+                                                        oldPatch[row-x,col+1-y])
 
-                            seamMapInfo[row*2][col*2+1] = (patch[row-x,col-y],
+                            seamMapInfo[row*2, col*2+1] = (patch[row-x,col-y],
                                                            oldPatch[row-x,col-y],
                                                            patch[row-x,col+1-y],
                                                            oldPatch[row-x,col+1-y])
@@ -634,29 +613,6 @@ def mergePatch(texture, seamMap, seamMapInfo, initMap, sourceMap, patch,
             initMap[row, col] = 1
 
     return 1
-
-def computeSeamTotal(seamMap, seamMapInfo, power):
-
-    seamTotal = 0.0
-
-    for i in range(seamMap.shape[0]):
-        for j in range(seamMap.shape[1]):
-            if seamMapInfo[i][j] != None:
-                seamTotal += seamMap[i][j] ** power
-
-    return seamTotal
-  
-
-def computeSeamTotalRegion(seamMap, seamMapInfo, row, col, size, power):
-
-    seamTotal = 0.0
-
-    for i in range(2 * size):
-        for j in range(2 * size):
-            if (seamMapInfo[2 * row + i][2 * col + j] != None):
-                seamTotal += (seamMap[2 * row + i][2 * col + j] ** power)
-
-    return seamTotal
 
 
 def add_edge(graph, node1, node2, capacity):
@@ -806,12 +762,13 @@ def testTextureSynthesis(datasetName, textureName, textureSize, dictOrder,
         train_img_array = train_img_array[:textureSize, :textureSize]
         test_img_array = imgArray[imgArray.shape[0] / 2:, :]
 
-        # Generate the neighborhood
+        # Generate the neighborhood       
         neighborhood = generateWeightedNeighborhoodArray(neighSizeValue +
                                                          noise_array.shape[2:],
                                                          neighTypeValue,
                                                          neighIncValue,
-                                                         patchSizeValue)
+                                                         patchSizeValue,
+                                                         mergeSizeValue)
 
         # Perform texture synthesis and save the result in a file whose name
         # contains the name of the parameter keys for easy identification
@@ -905,7 +862,7 @@ def testTextureSynthesisMulti(datasetName, textureName, textureSize):
     dictPatchSize = {'31x31patch': 31}
     dictMergeSize = {"mergeSize8": 8}
     dictMergeMode = {"graphcut": "graphcut"}
-    dictNeighWeightInc = {"inc-3": -3}
+    dictNeighWeightInc = {"inc0": 0}
 
     # Perform texture synthesis with the previously created parameter
     # dictionaries
