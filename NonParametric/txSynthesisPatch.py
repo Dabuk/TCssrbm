@@ -22,7 +22,7 @@ def getOutOfBoundSubArray(array, position, size):
     """
 
     result = numpy.zeros(size, numpy.uint8)
-    result_mask = numpy.zeros(size, numpy.uint8)
+    resultMask = numpy.zeros(size, numpy.uint8)
 
     ones = numpy.ones(size[2:])
     
@@ -37,9 +37,9 @@ def getOutOfBoundSubArray(array, position, size):
                 col < array.shape[1]):
             
                 result[i][j] = array[row][col]
-                result_mask[i][j] = ones
+                resultMask[i][j] = ones
                 
-    return (result, result_mask)
+    return (result, resultMask)
 
 
 def getWrappingSubArray(array, position, size):
@@ -55,13 +55,13 @@ def getWrappingSubArray(array, position, size):
     """
 
     result = numpy.zeros(size, numpy.uint8)
-    result_mask = numpy.ones(size, numpy.uint8)
+    resultMask = numpy.ones(size, numpy.uint8)
 
     for i in range(size[0]):
         for j in range(size[1]):
             result[i][j] = array[(position[0] + i) % array.shape[0]][(position[1] + j) % array.shape[1]]
 
-    return (result, result_mask)
+    return (result, resultMask)
 
    
 def generateWeightedNeighborhoodArray(size, full, inc=0, patchSize=1,
@@ -96,43 +96,43 @@ def generateWeightedNeighborhoodArray(size, full, inc=0, patchSize=1,
 
 # Defines and returns a theano function for calculating the neighborhood match
 # between a patch of noise and an array of sample patches
-def neighborhoodMatching(samples_value, neighborhood_value):
+def neighborhoodMatching(samplesValue, neighborhoodValue):
 
-    samples = theano.tensor.constant(samples_value, 'samples')
+    samples = theano.tensor.constant(samplesValue, 'samples')
     noise = theano.tensor.tensor3('noise', 'int32')
 
-    noise_neighborhood = theano.tensor.tensor3('noise_neigh', 'int32')
+    noiseNeighborhood = theano.tensor.tensor3('noiseNeigh', 'int32')
 
-    neighborhood = theano.tensor.constant(neighborhood_value, 'neighborhood')
+    neighborhood = theano.tensor.constant(neighborhoodValue, 'neighborhood')
 
-    mismatch = (samples - noise) * noise_neighborhood * neighborhood
+    mismatch = (samples - noise) * noiseNeighborhood * neighborhood
 
     output = theano.tensor.sum(mismatch ** 2, [2, 3, 4])
     best = theano.tensor.argmin(output)
 
-    f = theano.function([noise, noise_neighborhood], best)
+    f = theano.function([noise, noiseNeighborhood], best)
     return f
     
     
 # Defines and returns a theano function for calculating the neighborhood match
 # between a patch of noise and an array of sample patches
-def neighborhoodMatching2(neighborhood_value):
+def neighborhoodMatching2(neighborhoodValue):
 
     tensor5 = theano.tensor.TensorType('uint8', (False,)*5)
 
     samples = tensor5('samples')
     noise = theano.tensor.tensor3('noise', 'int16')
 
-    noise_neighborhood = theano.tensor.tensor3('noise_neigh', 'int32')
+    noiseNeighborhood = theano.tensor.tensor3('noiseNeigh', 'int32')
 
-    neighborhood = theano.tensor.constant(neighborhood_value, 'neighborhood')
+    neighborhood = theano.tensor.constant(neighborhoodValue, 'neighborhood')
 
-    mismatch = (samples - noise) * noise_neighborhood * neighborhood
+    mismatch = (samples - noise) * noiseNeighborhood * neighborhood
 
     output = theano.tensor.sum(mismatch ** 2, [2, 3, 4])
     best = theano.tensor.argmin(output)
 
-    f = theano.function([samples, noise, noise_neighborhood], best)
+    f = theano.function([samples, noise, noiseNeighborhood], best)
     return f    
 
 
@@ -170,7 +170,7 @@ def synthesisTexture(sample, noise, neighborhood, sequential, wrap, patchSize,
     seamMapInfo = numpy.asarray([[None for i in range(noise.shape[1] * 2)]
                                  for j in range(noise.shape[0] * 2)])
 
-    noise_copy = numpy.copy(noise)
+    noiseCopy = numpy.copy(noise)
 
     # Presample every possible sub_array of the same size as neighborhood from the sample image.
     # It will save a LOT of time later              
@@ -183,73 +183,67 @@ def synthesisTexture(sample, noise, neighborhood, sequential, wrap, patchSize,
     neighMatchFn = neighborhoodMatching2(neighborhood)
 
     # Compute utility values for patch matching
-    nb_row_noise = len(noise_copy)
-    nb_col_noise = len(noise_copy[0])
-    half_patch_size = (patchSize - 1) / 2
+    nbRowNoise = len(noiseCopy)
+    nbColNoise = len(noiseCopy[0])
+    halfPatchSize = (patchSize - 1) / 2
 
     # For every patch in the noise image
-    row_noise = 0
-    while row_noise < nb_row_noise:
+    rowNoise = 0
+    while rowNoise < nbRowNoise:
 
-        print row_noise * nb_row_noise, '/', nb_row_noise * nb_col_noise
+        print rowNoise * nbRowNoise, '/', nbRowNoise * nbColNoise
 
-        col_noise = 0
-        while col_noise < nb_col_noise:
+        colNoise = 0
+        while colNoise < nbColNoise:
 
             # Obtain the neighborhood of the next patch, in the noise image,
             # for which to compute the new pixel values.
-            noiseNeigh, noiseMask = arraySamplingOp(noise_copy,
-                                                    (row_noise - neighborhood.shape[0] / 2 + half_patch_size,
-                                                     col_noise - neighborhood.shape[1] / 2 + half_patch_size),
+            noiseNeigh, noiseMask = arraySamplingOp(noiseCopy,
+                                                    (rowNoise - neighborhood.shape[0] / 2 + halfPatchSize,
+                                                     colNoise - neighborhood.shape[1] / 2 + halfPatchSize),
                                                     neighborhood.shape)
 
-            # Find the nearest neighbor in the sample image
-            from datetime import datetime
-            start = datetime.now()
-            
+            # Find the nearest neighbor in the sample image            
             #bestNeigh = neighMatchFn(noiseNeigh, noiseMask)
             bestNeigh = neighMatchFn(samples, noiseNeigh, noiseMask)
-            
-            end = datetime.now()
-            print (end - start)
 
             bestSample = samples[bestNeigh / samples.shape[1],
                                  bestNeigh % samples.shape[1]]
 
             # Extract, from the best neighborhood, the best pixel values for the current patch.
-            bestPatch = bestSample[neighborhood.shape[0]/2 - half_patch_size:
+            bestPatch = bestSample[neighborhood.shape[0]/2 - halfPatchSize:
                                    neighborhood.shape[0]/2 + patchSize/2 + 1,
-                                   neighborhood.shape[1]/2 - half_patch_size:
+                                   neighborhood.shape[1]/2 - halfPatchSize:
                                    neighborhood.shape[1]/2 + patchSize/2 + 1]
 
-            bestPatch = bestPatch[:nb_row_noise - row_noise,
-                                  :nb_col_noise - col_noise]
+            bestPatch = bestPatch[:nbRowNoise - rowNoise,
+                                  :nbColNoise - colNoise]
 
             # Merge the patch with the part of the texture that has already
             # been generated
             if mergeMode == "overwrite":
                 # Copy the new pixel values in the current patch of the
                 # texture being generated
-                newPixelValues[row_noise:row_noise + bestPatch.shape[0],
-                               col_noise:col_noise + bestPatch.shape[1]] = bestPatch
+                newPixelValues[rowNoise:rowNoise + bestPatch.shape[0],
+                               colNoise:colNoise + bestPatch.shape[1]] = bestPatch
 
                 # If sequential, also copy the pixel values in the noise array
                 if sequential:
 
-                    noise_copy[row_noise:row_noise + bestPatch.shape[0],
-                               col_noise:col_noise + bestPatch.shape[1]] = bestPatch
+                    noiseCopy[rowNoise:rowNoise + bestPatch.shape[0],
+                               colNoise:colNoise + bestPatch.shape[1]] = bestPatch
 
             elif mergeMode == "graphcut":
                 mergePatch(newPixelValues, seamMap, seamMapInfo, initMap,
-                           sourceMap, bestPatch, row_noise, col_noise)
+                           sourceMap, bestPatch, rowNoise, colNoise)
 
                 if sequential:
-                    noise_copy = numpy.copy(newPixelValues)
+                    noiseCopy = numpy.copy(newPixelValues)
 
-            # Increment col_noise
-            col_noise += patchSize - mergeSize
+            # Increment colNoise
+            colNoise += patchSize - mergeSize
 
-        row_noise += patchSize - mergeSize
+        rowNoise += patchSize - mergeSize
 
     # Display the pre-"improvement phase" quality of the generated texture
     quality = (seamMap.sum(), (seamMap ** 2).sum())
@@ -262,12 +256,12 @@ def synthesisTexture(sample, noise, neighborhood, sequential, wrap, patchSize,
         improvementNeigh = numpy.ones((regionSize, regionSize, 1), 
                                       dtype='int32')
 
-        for noImprovement in range(0):
+        for noImprovement in range(00):
 
             # Find the worst region in the texture
             worstRegionCoord = (-1, -1)
             worstSeamTotal = -1
-                                    
+            
             for row in range(newPixelValues.shape[0] - regionSize):
                 for col in range(newPixelValues.shape[1] - regionSize):
                                                    
@@ -279,8 +273,8 @@ def synthesisTexture(sample, noise, neighborhood, sequential, wrap, patchSize,
                         worstSeamTotal = total
                                     
             worstRegion = arraySamplingOp(newPixelValues,
-                                          (worstRegionCoord[0] - neighborhood.shape[0] / 2 + half_patch_size,
-                                           worstRegionCoord[1] - neighborhood.shape[1] / 2 + half_patch_size),
+                                          (worstRegionCoord[0] - neighborhood.shape[0] / 2 + halfPatchSize,
+                                           worstRegionCoord[1] - neighborhood.shape[1] / 2 + halfPatchSize),
                                           neighborhood.shape)[0]
                                           
             # Find the best patch in the swatch
@@ -289,9 +283,9 @@ def synthesisTexture(sample, noise, neighborhood, sequential, wrap, patchSize,
             bestSample = samples[bestNeigh / samples.shape[1],
                                  bestNeigh % samples.shape[1]]
 
-            bestPatch = bestSample[neighborhood.shape[0] / 2 - half_patch_size:
+            bestPatch = bestSample[neighborhood.shape[0] / 2 - halfPatchSize:
                                    neighborhood.shape[0] / 2 + patchSize / 2 + 1,
-                                   neighborhood.shape[1] / 2 - half_patch_size:
+                                   neighborhood.shape[1] / 2 - halfPatchSize:
                                    neighborhood.shape[1] / 2 + patchSize / 2 + 1]
 
             # Merge the patch in the texture
@@ -499,21 +493,21 @@ def mergePatch(texture, seamMap, seamMapInfo, initMap, sourceMap, patch,
         # Compute the auxiliary graph and populate it with edges from the original
         # graph whose capacity are NOT saturated by the flow computed in the
         # max-flow algorithm.
-        g_aux = networkx.Graph()
+        gAux = networkx.Graph()
 
         for edge in g.edges(data=True):                
             if (edge[2]['capacity'] - flow[edge[0]][edge[1]] >= 1e-10):
-                g_aux.add_edge(edge[0], edge[1])
+                gAux.add_edge(edge[0], edge[1])
 
         # Partition the auxiliary graph according to which nodes are connected to
         # the source node and which are connected to the target node.
-        if 'A' in g_aux:
-            sourcePartition = set(networkx.single_source_shortest_path(g_aux, 'A'))
+        if 'A' in gAux:
+            sourcePartition = set(networkx.single_source_shortest_path(gAux, 'A'))
         else:
             sourcePartition = set()
             
-        if 'B' in g_aux:
-            targetPartition = set(networkx.single_source_shortest_path(g_aux, 'B'))
+        if 'B' in gAux:
+            targetPartition = set(networkx.single_source_shortest_path(gAux, 'B'))
         else:
             targetPartition = set() 
             
@@ -618,10 +612,6 @@ def add_edge(graph, node1, node2, capacity):
     # an edge's capacity is equal or smaller than 0.
     if capacity > 0.0:
         graph.add_edge(node1, node2, capacity=capacity)
-    else:
-        #import pdb
-        #pdb.set_trace()
-        pass
 
 
 def m(As, Bs, At, Bt):
@@ -647,17 +637,34 @@ def greenRedInterpolation(val, minVal, maxVal):
     # Constrain val between 0 and 1
     val = min(val, maxVal)
     val = max(val, minVal)
-    normalized_val = (val - minVal) / (maxVal - minVal)
+    normalizedVal = (val - minVal) / (maxVal - minVal)
 
     # Compute the corresponding color
-    if normalized_val < 0.5:
-        rgb[0] = int(255 * 2 * normalized_val)
+    if normalizedVal < 0.5:
+        rgb[0] = int(255 * 2 * normalizedVal)
         rgb[1] = 255
     else:
         rgb[0] = 255
-        rgb[1] = 255 - int(255 * 2 * (normalized_val - 0.5))
+        rgb[1] = 255 - int(255 * 2 * (normalizedVal - 0.5))
 
     return rgb
+
+
+def loadImage(filename):
+    """
+    Loads the file with the given filename as an image and returns it as a 3D
+    numpy matrix (height, width, color channels)
+    """
+    
+    img = Image.open(filename)
+    imgArray = numpy.asarray(img)
+
+    # If sample is grayscale, add a third dimension of size 1 to ensure
+    # consistency between grayscale and color textures
+    if len(imgArray.shape) == 2:
+        imgArray = numpy.reshape(imgArray, imgArray.shape + (1,))
+        
+    return imgArray
 
 
 def testTextureSynthesis(datasetName, textureName, textureSize, dictOrder,
@@ -667,7 +674,7 @@ def testTextureSynthesis(datasetName, textureName, textureSize, dictOrder,
 
     # Generate a list of every possible combination of the parameters values
     # arrays
-    param_combinations = list(itertools.product(dictOrder, dictWrap,
+    paramCombinations = list(itertools.product(dictOrder, dictWrap,
                                                 dictNeighSize,
                                                 dictNeighType, dictInput,
                                                 dictPatchSize,
@@ -678,20 +685,20 @@ def testTextureSynthesis(datasetName, textureName, textureSize, dictOrder,
     """
     # Remove from the list the combinations that are invalid, superfluous
     # or give very poor results.
-    param_combinations = [p for p in param_combinations if not (p[0] == 'parallel')]
+    paramCombinations = [p for p in paramCombinations if not (p[0] == 'parallel')]
 
-    param_combinations = [p for p in param_combinations if not (p[1] == 'wrap')]
+    paramCombinations = [p for p in paramCombinations if not (p[1] == 'wrap')]
 
-    param_combinations = [p for p in param_combinations if not (p[3] == 'full' and
-                                                                p[4] == 'fromNoise')]
+    paramCombinations = [p for p in paramCombinations if not (p[3] == 'full' and
+                                                              p[4] == 'fromNoise')]
 
-    param_combinations = [p for p in param_combinations if not (p[3] == 'partial' and
-                                                                p[4] == 'fromSample')]
+    paramCombinations = [p for p in paramCombinations if not (p[3] == 'partial' and
+                                                              p[4] == 'fromSample')]
     """
 
     # Run texture synthesis for every valid combination of the parameters
     # values
-    for params in param_combinations:
+    for params in paramCombinations:
 
         print "Starting test : " + "_".join(params)
 
@@ -714,58 +721,53 @@ def testTextureSynthesis(datasetName, textureName, textureSize, dictOrder,
         # Load the texture sample from which to generate a new texture
         # and cast it as a numpy array
         if datasetName == "brodatz":
-            imageFilename = "/data/lisa/data/Brodatz/" + textureName + ".gif"
+            textureFilename = "/data/lisa/data/Brodatz/" + textureName + ".gif"
         elif datasetName == "ubi":
-            imageFilename = "/data/lisa/data/ubi/textures/" + textureName + ".jpg"
+            textureFilename = "/data/lisa/data/ubi/textures/" + textureName + ".jpg"
+            
+        texture = loadImage(textureFilename)
+        textureNbChannels = texture.shape[2]
+        
+        # Extract the swatch from the original texture
+        swatch = texture[:texture.shape[0] / 2, :]
+        swatch = swatch[:textureSize, :textureSize]
+                
 
-        image = Image.open(imageFilename)
-        imgArray = numpy.asarray(image)
-
-        # If grayscale, add a third dimension of size 1 to ensure consistency
-        # between grayscale and color textures
-        if len(imgArray.shape) == 2:
-            imgArray = numpy.reshape(imgArray, imgArray.shape + (1,))
-        nbColorChannels = imgArray.shape[2]
-
-        # Load/generate the starting 'noise' for texture synthesis and cast it
-        # as a numpy array
-        noiseArrSize = 400
-        noise_array = None
+        # Load/generate the initial state for the new texture
+        newTextureSize = 400
+        newTextureInit = None
                 
         if inputValue:
-            # Generate input noise
-            noise_array = numpy.random.randint(0, 256, (noiseArrSize, noiseArrSize, nbColorChannels))
-            noise_array = numpy.asarray(noise_array, dtype='uint8')
+            # The initial state for the texture is random noise
+            newTextureInit = numpy.random.randint(0, 256, (newTextureSize, 
+                                                        newTextureSize,
+                                                        textureNbChannels))
+            newTextureInit = numpy.asarray(newTextureInit, dtype='uint8')
         else:
-            # Load a sample generated by the model
-            noise_filename = "./Samples_FullScale/" + datasetName + "/" + textureName + "/sample.png"
-            noise_image = Image.open(noise_filename)
-            noise_array = numpy.asarray(noise_image)
+            # The initial state for the texture is a sample previouly 
+            # generated by a different model
+            sampleFilename = "./Samples_FullScale/" + datasetName + "/" + textureName + "/sample.png"
+            newTextureInit = loadImage(sampleFilename)
+            newTextureInit = newTextureInit[0:newTextureSize, 0:newTextureSize]
+            newTextureNbChannels = newTextureInit.shape[2]
 
-            # If grayscale, add a third dimension of size 1 to ensure
-            # consistency between grayscale and color textures
-            if len(noise_array.shape) == 2:
-                noise_array = numpy.reshape(noise_array, noise_array.shape + (1,))
-            nbColorChannelsNoise = noise_array.shape[2]
-
-            if nbColorChannels != nbColorChannelsNoise:
-                if nbColorChannels == 1 and nbColorChannelsNoise > 1:
-                    noise_array = numpy.mean(noise_array, 2)
-                elif nbColorChannels > 1 and nbColorChannelsNoise == 1:
-                    noise_array = numpy.reshape(noise_array,noise_array.shape()+(nbColorChannels,))
+            # Ensure that the swatch and the new texture have the same number
+            # of color channels
+            if textureNbChannels != newTextureNbChannels:
+                if textureNbChannels == 1 and newTextureNbChannels > 1:
+                    newTextureInit = numpy.mean(newTextureInit, 2)
+                elif textureNbChannels > 1 and newTextureNbChannels == 1:
+                    newTextureInit = numpy.reshape(newTextureInit,newTextureInit.shape()+(textureNbChannels,))
                 else:
-                    noise_array = numpy.mean(noise_array, 2)
-                    imgArray = numpy.mean(imgArray, 2)
+                    newTextureInit = numpy.mean(newTextureInit, 2)
+                    swatch = numpy.mean(swatch, 2)
 
-            noise_array = noise_array[0:noiseArrSize, 0:noiseArrSize]
+            newTextureInit = newTextureInit[0:newTextureSize, 0:newTextureSize]
 
-        train_img_array = imgArray[:imgArray.shape[0] / 2, :]
-        train_img_array = train_img_array[:textureSize, :textureSize]
-        test_img_array = imgArray[imgArray.shape[0] / 2:, :]
 
         # Generate the neighborhood       
         neighborhood = generateWeightedNeighborhoodArray(neighSizeValue +
-                                                         noise_array.shape[2:],
+                                                         newTextureInit.shape[2:],
                                                          neighTypeValue,
                                                          neighIncValue,
                                                          patchSizeValue,
@@ -773,10 +775,10 @@ def testTextureSynthesis(datasetName, textureName, textureSize, dictOrder,
 
         # Perform texture synthesis and save the result in a file whose name
         # contains the name of the parameter keys for easy identification
-        newTexture = noise_array
+        newTexture = newTextureInit
         
         for i in range(1, nbItt + 1):
-            newTexture, extraData = synthesisTexture(train_img_array,
+            newTexture, extraData = synthesisTexture(swatch,
                                                      newTexture,
                                                      neighborhood, orderValue,
                                                      wrapValue,
@@ -790,14 +792,14 @@ def testTextureSynthesis(datasetName, textureName, textureSize, dictOrder,
 
         # If images are grayscale, remove the last dimensions to allow scipy
         # to save them properly
+        if swatch.shape[2] == 1:
+            swatch = swatch.mean(2)
+            
         if newTexture.shape[2] == 1:
             newTexture = newTexture.mean(2)
 
-        if train_img_array.shape[2] == 1:
-            train_img_array = train_img_array.mean(2)
-
-        if noise_array.shape[2] == 1:
-            noise_array = noise_array.mean(2)
+        if newTextureInit.shape[2] == 1:
+            newTextureInit = newTextureInit.mean(2)
 
         # Convert the seam map to color for higher visibility
         minSeam = 0
@@ -828,10 +830,10 @@ def testTextureSynthesis(datasetName, textureName, textureSize, dictOrder,
         scipy.misc.imsave(newTextureFilename, newTexture)
 
         textureFilename = folderName + "/texture_" + '_'.join(params) + ".png"
-        scipy.misc.imsave(textureFilename, train_img_array)
+        scipy.misc.imsave(textureFilename, swatch)
 
         originalFilename = folderName + "/noise_" + '_'.join(params) + ".png"
-        scipy.misc.imsave(originalFilename, noise_array)
+        scipy.misc.imsave(originalFilename, newTextureInit)
 
         sourceMapFilename = folderName + "/sourceMap_" + '_'.join(params) + ".png"
         scipy.misc.imsave(sourceMapFilename, sourceMap)
@@ -858,7 +860,11 @@ def testTextureSynthesisMulti(datasetName, textureName, textureSize):
     dictMergeSize = {"mergeSize0": 0, "mergeSize8": 8}
     dictMergeMode = {"overwrite": "overwrite", "graphcut": "graphcut"}
 
+
+    dictOrder = {'sequential': True}
+    dictWrap = {'nowrap': False}
     dictNeighSize = {'31x31': (31, 31)}
+    dictNeighType = {'partial': False}
     dictInput = {'fromNoise': True}
     dictPatchSize = {'31x31patch': 31}
     dictMergeSize = {"mergeSize8": 8}
