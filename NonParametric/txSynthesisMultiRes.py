@@ -1021,7 +1021,7 @@ if __name__ == "__main__":
         neighborhoodWeightInc = int(sys.argv[12])
         mergeSize = int(getParam(13, 0))
         mergeMode = getParam(14, "overwrite")
-        structWeight = getParam(15, 1)
+        structWeight = float(getParam(15, 1.0))
 
         # Perform texture synthesis with the given parameters
         testTextureSynthesisSingle(datasetName, textureName, textureSize,
