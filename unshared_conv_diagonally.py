@@ -9,6 +9,8 @@ import StringIO
 
 from theano.tensor import blas
 from theano import gof, tensor, scalar
+from theano.gradient import grad_undefined
+
 
 def any_symbolic(*args):
     """
@@ -1111,7 +1113,13 @@ class WeightActs(Base):
                 gfilters, hidacts, irows, icols)
         ghidacts = FilterActs(module_stride=self.module_stride)(
                 images, gfilters)
-        return [gimages, ghidacts, None, None]       
+        gfrows = grad_undefined(
+            self, 2, frows,
+            "WeightActs grad is not defined again frows input")
+        gfcols = grad_undefined(
+            self, 2, frows,
+            "WeightActs grad is not defined again fcols input")
+        return [gimages, ghidacts, gfrows, gfcols]
 
     def infer_shape(self, node, shapes):
         images, hidacts, frows, fcols = node.inputs
@@ -1623,4 +1631,10 @@ class ImgActs(Base):
                 gimages, hidacts, frows, fcols)
         ghidacts = FilterActs(module_stride=self.module_stride)(
                 gimages, filters)
-        return [gfilters, ghidacts, None, None]
+        girows = grad_undefined(
+            self, 2, irows,
+            "WeightActs grad is not defined again irows input")
+        gicols = grad_undefined(
+            self, 2, irows,
+            "WeightActs grad is not defined again icols input")
+        return [gfilters, ghidacts, girows, gicols]
