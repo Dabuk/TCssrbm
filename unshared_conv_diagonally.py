@@ -23,15 +23,13 @@ def not_symbolic(*args):
     return not any_symbolic(*args)
 
 
-class Base(theano.Op):
+class Base(theano.OpenMPOp):
     def __init__(self,
             module_stride=1,
             openmp=None
             ):
+        super(Base, self).__init__(openmp=openmp)
         self.module_stride = module_stride
-        if openmp is None:
-            openmp = theano.config.openmp
-        self.openmp = openmp
 
     def _attributes(self):
         return (
@@ -53,11 +51,6 @@ class Base(theano.Op):
                 self.openmp
                 )
 
-    def c_compile_args(self):
-        if self.openmp:
-            return ['-fopenmp']
-        return []
-
 
 class FilterActs(Base):
     """
@@ -71,10 +64,8 @@ class FilterActs(Base):
                  fcols=None,
                  frows=None
             ):
-        self.module_stride = module_stride
-        if openmp is None:
-            openmp = theano.config.openmp
-        self.openmp = openmp
+        super(FilterActs, self).__init__(module_stride=module_stride,
+                                         openmp=openmp)
         self.fcols = fcols
         self.frows = frows
 
@@ -92,13 +83,9 @@ class FilterActs(Base):
     def c_libraries(self):
         return blas.ldflags()
 
-    def c_headers(self):
-        return ["omp.h"]
-
     def c_compile_args(self):
-        ret = blas.ldflags(libs=False, flags=True)
-        if self.openmp:
-            ret += ['-fopenmp']
+        ret = super(FilterActs, self).c_compile_args()
+        ret += blas.ldflags(libs=False, flags=True)
         return ret
 
     def c_lib_dirs(self):
@@ -403,8 +390,9 @@ class FilterActs(Base):
 
             if(useBlas){
                 int nb_threads = 1;
-                if(%(openmp)s)
-                    nb_threads = omp_get_max_threads();
+#if defined(_OPENMP)
+                nb_threads = omp_get_max_threads();
+#endif
 
                 //Allocate temporary storare for output of gemm
                 npy_intp gemm_out_dim[2];
@@ -456,8 +444,12 @@ class FilterActs(Base):
                                           %(output)s, %(images)s,\
                                           gemm_outs, gemm_imgs) if(%(openmp)s)
 {
-                PyArrayObject* gemm_out = gemm_outs[omp_get_thread_num()];
-                PyArrayObject* gemm_img = gemm_imgs[omp_get_thread_num()];
+                int thread_num = 0;
+#if defined(_OPENMP)
+                thread_num = omp_get_thread_num();
+#endif
+                PyArrayObject* gemm_out = gemm_outs[thread_num];
+                PyArrayObject* gemm_img = gemm_imgs[thread_num];
                 char noTrans = 'N';
                 char Trans = 'T';
                 const dtype_%(output)s alpha = 1.0f;
@@ -1255,13 +1247,9 @@ class ImgActs(Base):
     def c_libraries(self):
         return blas.ldflags()
 
-    def c_headers(self):
-        return ["omp.h"]
-
     def c_compile_args(self):
-        ret = blas.ldflags(libs=False, flags=True)
-        if self.openmp:
-            ret += ['-fopenmp']
+        ret = super(ImgActs, self).c_compile_args()
+        ret += blas.ldflags(libs=False, flags=True)
         return ret
 
     def c_lib_dirs(self):
