@@ -215,10 +215,10 @@ class FilterActs(Base):
         fcols = self.fcols
         openmp = int(self.openmp)
         if fcols is None:
-            fcols = "%(filters)s->dimensions[4]" % locals()
+            fcols = "PyArray_DIMS(%(filters)s)[4]" % locals()
         frows = self.frows
         if frows is None:
-            frows = "%(filters)s->dimensions[3]" % locals()
+            frows = "PyArray_DIMS(%(filters)s)[3]" % locals()
 
         if node.outputs[0].dtype == 'float32':
             gemm = "sgemm_"
@@ -231,43 +231,43 @@ class FilterActs(Base):
         // Validate the number of dimensions and the
         // data type of the input tensors
 
-        if (%(images)s->nd != 4){
+        if (PyArray_NDIM(%(images)s) != 4){
             PyErr_SetString(PyExc_ValueError,
                             "FilterActs: images not a 4d tensor");
             %(fail)s;
         }
 
-        if (%(filters)s->nd != 5){
+        if (PyArray_NDIM(%(filters)s) != 5){
             PyErr_SetString(PyExc_ValueError,
                             "FilterActs: filters not a 5d tensor");
             %(fail)s;
         }
 
-        if ((%(images)s->descr->type_num != PyArray_DOUBLE) &&
-            (%(images)s->descr->type_num != PyArray_FLOAT)){
+        if ((PyArray_TYPE(%(images)s) != NPY_DOUBLE) &&
+            (PyArray_TYPE(%(images)s) != NPY_FLOAT)){
             PyErr_SetString(PyExc_TypeError,
                       "FilterActs: images type should be float32 or float64");
             %(fail)s;
         }
 
-        if ((%(filters)s->descr->type_num != PyArray_DOUBLE) &&
-            (%(filters)s->descr->type_num != PyArray_FLOAT)){
+        if ((PyArray_TYPE(%(filters)s) != NPY_DOUBLE) &&
+            (PyArray_TYPE(%(filters)s) != NPY_FLOAT)){
             PyErr_SetString(PyExc_TypeError,
                       "FilterActs: filters type should be float32 or float64");
             %(fail)s;
         }
 
-        if ( %(fcols)s != %(filters)s->dimensions[4]){
+        if ( %(fcols)s != PyArray_DIMS(%(filters)s)[4]){
             PyErr_Format(PyExc_ValueError,
                       "FilterActs: fcols was set to %%d, but the input shape is %%d",
-                      %(fcols)s, %(filters)s->dimensions[4]);
+                      %(fcols)s, PyArray_DIMS(%(filters)s)[4]);
             %(fail)s;
         }
 
-        if ( %(frows)s != %(filters)s->dimensions[3]){
+        if ( %(frows)s != PyArray_DIMS(%(filters)s)[3]){
             PyErr_Format(PyExc_ValueError,
                       "FilterActs: frows was set to %%d, but the input shape is %%d",
-                      %(frows)s, %(filters)s->dimensions[3]);
+                      %(frows)s, PyArray_DIMS(%(filters)s)[3]);
             %(fail)s;
         }
 
@@ -275,14 +275,14 @@ class FilterActs(Base):
 
             // Extract input variables
 
-            const int icount = %(images)s->dimensions[0];
-            const int icolors = %(images)s->dimensions[1];
-            const int irows = %(images)s->dimensions[2];
-            const int icols = %(images)s->dimensions[3];
+            const int icount = PyArray_DIMS(%(images)s)[0];
+            const int icolors = PyArray_DIMS(%(images)s)[1];
+            const int irows = PyArray_DIMS(%(images)s)[2];
+            const int icols = PyArray_DIMS(%(images)s)[3];
 
-            const int fmodules = %(filters)s->dimensions[0];
-            const int filters_per_module = %(filters)s->dimensions[1];
-            const int fcolors = %(filters)s->dimensions[2];
+            const int fmodules = PyArray_DIMS(%(filters)s)[0];
+            const int filters_per_module = PyArray_DIMS(%(filters)s)[1];
+            const int fcolors = PyArray_DIMS(%(filters)s)[2];
             const int frows = %(frows)s;
             const int fcols = %(fcols)s;
 
@@ -333,21 +333,21 @@ class FilterActs(Base):
             outputDims[4] = icols / fcols;
 
             if (NULL == %(output)s ||
-                (%(output)s->dimensions[0] != outputDims[0]) ||
-                (%(output)s->dimensions[1] != outputDims[1]) ||
-                (%(output)s->dimensions[2] != outputDims[2]) ||
-                (%(output)s->dimensions[3] != outputDims[3]) ||
-                (%(output)s->dimensions[4] != outputDims[4]) ||
+                (PyArray_DIMS(%(output)s)[0] != outputDims[0]) ||
+                (PyArray_DIMS(%(output)s)[1] != outputDims[1]) ||
+                (PyArray_DIMS(%(output)s)[2] != outputDims[2]) ||
+                (PyArray_DIMS(%(output)s)[3] != outputDims[3]) ||
+                (PyArray_DIMS(%(output)s)[4] != outputDims[4]) ||
                 (!PyArray_ISBEHAVED(%(output)s)) ||
-                ((%(output)s->descr->type_num != PyArray_DOUBLE) &&
-                 (%(output)s->descr->type_num != PyArray_FLOAT)) )
+                ((PyArray_TYPE(%(output)s) != NPY_DOUBLE) &&
+                 (PyArray_TYPE(%(output)s) != NPY_FLOAT)) )
             {
                 // The output array has not been declared or
                 // is of an invalid format.
                 if (NULL != %(output)s) Py_XDECREF(%(output)s);
 
                 %(output)s = (PyArrayObject*)PyArray_EMPTY(5, outputDims,
-                                              %(filters)s->descr->type_num, 0);
+                                              PyArray_TYPE(%(filters)s), 0);
                 if(!%(output)s) {
                     PyErr_SetString(PyExc_MemoryError,
                               "FilterActs: failed to alloc memory for output");
@@ -365,17 +365,17 @@ class FilterActs(Base):
             // We reshape the images: rc_images.reshape(icount, -1)
             // In number of elements
             const int img_strd_0 = icolors * irows * icols;
-            const int img_strd_1 = c_images->strides[1] / PyArray_ITEMSIZE(c_images);
-            const int img_strd_2 = c_images->strides[2] / PyArray_ITEMSIZE(c_images);
-            const int img_strd_3 = 1;//c_images->strides[3] / PyArray_ITEMSIZE(c_images);
+            const int img_strd_1 = PyArray_STRIDES(c_images)[1] / PyArray_ITEMSIZE(c_images);
+            const int img_strd_2 = PyArray_STRIDES(c_images)[2] / PyArray_ITEMSIZE(c_images);
+            const int img_strd_3 = 1;//PyArray_STRIDES(c_images)[3] / PyArray_ITEMSIZE(c_images);
             // We reshape and transpose the filter:
             //   src_filters.reshape(filters_per_module, -1).T
             // In number of elements
-            const int fil_strd_0 = 1;//c_filters->strides[4] / PyArray_ITEMSIZE(c_filters);
-            const int fil_strd_1 = c_filters->strides[1] / PyArray_ITEMSIZE(c_filters);
+            const int fil_strd_0 = 1;//PyArray_STRIDES(c_filters)[4] / PyArray_ITEMSIZE(c_filters);
+            const int fil_strd_1 = PyArray_STRIDES(c_filters)[1] / PyArray_ITEMSIZE(c_filters);
 
-            const int out_strd_i = %(output)s->strides[0] / PyArray_ITEMSIZE(%(output)s);
-            const int out_strd_j = %(output)s->strides[2] / PyArray_ITEMSIZE(%(output)s);
+            const int out_strd_i = PyArray_STRIDES(%(output)s)[0] / PyArray_ITEMSIZE(%(output)s);
+            const int out_strd_j = PyArray_STRIDES(%(output)s)[2] / PyArray_ITEMSIZE(%(output)s);
 
 
             // Check if BLAS' gemm can be used to speed up the computations
@@ -405,7 +405,7 @@ class FilterActs(Base):
                 for(int i = 0; i< nb_threads; i++){
                     gemm_outs[i] = (PyArrayObject*)PyArray_EMPTY(2,
                                                   gemm_out_dim,
-                                                  %(output)s->descr->type_num,
+                                                  PyArray_TYPE(%(output)s),
                                                   0);
                     if(!gemm_outs[i]) {
                         PyErr_SetString(PyExc_MemoryError,
@@ -427,7 +427,7 @@ class FilterActs(Base):
                 for(int i = 0; i< nb_threads; i++){
                     gemm_imgs[i] = (PyArrayObject*)PyArray_EMPTY(2,
                                                    gemm_img_dim,
-                                                   %(images)s->descr->type_num,
+                                                   PyArray_TYPE(%(images)s),
                                                    1);
                     if(!gemm_imgs[i]) {
                         PyErr_SetString(PyExc_MemoryError,
@@ -465,8 +465,8 @@ class FilterActs(Base):
 #pragma omp for schedule(static)
                 for(int m=0; m<fmodules; m++){
                     dtype_%(filters)s* rc_filters = (dtype_%(filters)s*)(
-                                                     c_filters->data +
-                                                     m * c_filters->strides[0]);
+                                                     PyArray_BYTES(c_filters) +
+                                                     m * PyArray_STRIDES(c_filters)[0]);
                     for(int hR=0; hR<outputDims[3]; hR++){ // loop hrows time
                         int img_r_offset = m * module_stride + hR * frows;
 
@@ -474,11 +474,11 @@ class FilterActs(Base):
                             int img_c_offset = m * module_stride + hC * fcols;
 
                             dtype_%(images)s* rc_images = (dtype_%(images)s*)(
-                                                     c_images->data +
-                                                     img_r_offset * c_images->strides[2] +
-                                                     img_c_offset * c_images->strides[3]);
+                                                     PyArray_BYTES(c_images) +
+                                                     img_r_offset * PyArray_STRIDES(c_images)[2] +
+                                                     img_c_offset * PyArray_STRIDES(c_images)[3]);
                             //copy the images into gemm_img
-                            dtype_%(images)s* gemm_img_ptr = (dtype_%(images)s*) gemm_img->data;
+                            dtype_%(images)s* gemm_img_ptr = (dtype_%(images)s*) PyArray_BYTES(gemm_img);
 
 //       raise(SIGINT);                          
                             
@@ -500,21 +500,21 @@ class FilterActs(Base):
                             //call gemm, it expect input as f order, so we need to swap inputs.
                             %(gemm)s(&Trans, &noTrans,
                                      &filters_per_module, &icount, &K,
-                                     &alpha, rc_filters, &LDB, (dtype_%(images)s*)gemm_img->data, &LDA,
+                                     &alpha, rc_filters, &LDB, (dtype_%(images)s*)PyArray_BYTES(gemm_img), &LDA,
                                      &beta, (dtype_%(output)s*) PyArray_DATA(gemm_out), &LDC);
 
                             //copy the output into out_ptr
                             dtype_%(output)s* out_ptr = (dtype_%(output)s*)(
-                                                     %(output)s->data +
-                                                     //i * %(output)s->strides[0] +
-                                                     m * %(output)s->strides[1] +
-                                                     //j * %(output)s->strides[2] +
-                                                     hR * %(output)s->strides[3] +
-                                                     hC * %(output)s->strides[4]);
+                                                     PyArray_BYTES(%(output)s) +
+                                                     //i * PyArray_STRIDES(%(output)s)[0] +
+                                                     m * PyArray_STRIDES(%(output)s)[1] +
+                                                     //j * PyArray_STRIDES(%(output)s)[2] +
+                                                     hR * PyArray_STRIDES(%(output)s)[3] +
+                                                     hC * PyArray_STRIDES(%(output)s)[4]);
 
                             dtype_%(output)s* gemm_out_ptr = (dtype_%(output)s*)PyArray_DATA(gemm_out);
-                            int gemm_out_s0 = gemm_out->strides[0] / PyArray_ITEMSIZE(gemm_out);
-                            int gemm_out_s1 = gemm_out->strides[1] / PyArray_ITEMSIZE(gemm_out);
+                            int gemm_out_s0 = PyArray_STRIDES(gemm_out)[0] / PyArray_ITEMSIZE(gemm_out);
+                            int gemm_out_s1 = PyArray_STRIDES(gemm_out)[1] / PyArray_ITEMSIZE(gemm_out);
                             
                             for(int i=0; i<icount;
                                 i++, out_ptr += out_strd_i,
@@ -536,8 +536,8 @@ class FilterActs(Base):
 #pragma omp parallel for schedule(static) default(none) shared(c_filters, c_images, outputDims, %(output)s)
             for(int m=0; m<fmodules; m++){
                 dtype_%(filters)s* rc_filters = (dtype_%(filters)s*)(
-                                                 c_filters->data +
-                                                 m * c_filters->strides[0]);
+                                                 PyArray_BYTES(c_filters) +
+                                                 m * PyArray_STRIDES(c_filters)[0]);
                 for(int hR=0; hR<outputDims[3]; hR++){ // loop hrows time
                     int img_r_offset = m * module_stride + hR * frows;
 
@@ -545,16 +545,16 @@ class FilterActs(Base):
                         int img_c_offset = m * module_stride + hC * fcols;
 
                         dtype_%(images)s* rc_images = (dtype_%(images)s*)(
-                                                 c_images->data +
-                                                 img_r_offset * c_images->strides[2] +
-                                                 img_c_offset * c_images->strides[3]);
+                                                 PyArray_BYTES(c_images) +
+                                                 img_r_offset * PyArray_STRIDES(c_images)[2] +
+                                                 img_c_offset * PyArray_STRIDES(c_images)[3]);
                         dtype_%(output)s* __restrict__ out_ptr = (dtype_%(output)s*)(
-                                                 %(output)s->data +
-                                                 //i * %(output)s->strides[0] +
-                                                 m * %(output)s->strides[1] +
-                                                 //j * %(output)s->strides[2] +
-                                                 hR * %(output)s->strides[3] +
-                                                 hC * %(output)s->strides[4]);
+                                                 PyArray_BYTES(%(output)s) +
+                                                 //i * PyArray_STRIDES(%(output)s)[0] +
+                                                 m * PyArray_STRIDES(%(output)s)[1] +
+                                                 //j * PyArray_STRIDES(%(output)s)[2] +
+                                                 hR * PyArray_STRIDES(%(output)s)[3] +
+                                                 hC * PyArray_STRIDES(%(output)s)[4]);
 
 //TODO        raise(SIGINT);
 
@@ -748,31 +748,31 @@ class WeightActs(Base):
         
         // Validate the shape and the data type of the input tensors
         
-        if (%(hidacts)s->nd != 5){
+        if (PyArray_NDIM(%(hidacts)s) != 5){
             PyErr_SetString(PyExc_ValueError, "hidacts not a 5d tensor");
             %(fail)s;
         }
         
-        if (%(images)s->nd != 4){
+        if (PyArray_NDIM(%(images)s) != 4){
             PyErr_SetString(PyExc_ValueError, "images not a 4d tensor");
             %(fail)s;
         }
         
-        if ((%(hidacts)s->descr->type_num != PyArray_DOUBLE) && 
-            (%(hidacts)s->descr->type_num != PyArray_FLOAT)){
+        if ((PyArray_TYPE(%(hidacts)s) != NPY_DOUBLE) &&
+            (PyArray_TYPE(%(hidacts)s) != NPY_FLOAT)){
             PyErr_SetString(PyExc_TypeError, 
                             "hidacts type should be float32 or float64");
             %(fail)s;
         }
         
-        if ((%(images)s->descr->type_num != PyArray_DOUBLE) && 
-            (%(images)s->descr->type_num != PyArray_FLOAT)){
+        if ((PyArray_TYPE(%(images)s) != NPY_DOUBLE) &&
+            (PyArray_TYPE(%(images)s) != NPY_FLOAT)){
             PyErr_SetString(PyExc_TypeError, 
                             "images type should be float32 or float64");
             %(fail)s;
         }
         
-        if (%(images)s->descr->type_num != %(hidacts)s->descr->type_num){
+        if (PyArray_TYPE(%(images)s) != PyArray_TYPE(%(hidacts)s)){
             PyErr_SetString(PyExc_TypeError,
                             "images and hidacts should have the same type");
             %(fail)s;
@@ -782,19 +782,19 @@ class WeightActs(Base):
         
             // Extract input variables
             
-            int hcount = %(hidacts)s->dimensions[0];
-            int fmodules = %(hidacts)s->dimensions[1];
-            int filters_per_module = %(hidacts)s->dimensions[2];
-            int hrows = %(hidacts)s->dimensions[3];
-            int hcols = %(hidacts)s->dimensions[4];
+            int hcount = PyArray_DIMS(%(hidacts)s)[0];
+            int fmodules = PyArray_DIMS(%(hidacts)s)[1];
+            int filters_per_module = PyArray_DIMS(%(hidacts)s)[2];
+            int hrows = PyArray_DIMS(%(hidacts)s)[3];
+            int hcols = PyArray_DIMS(%(hidacts)s)[4];
                        
-            int icount = %(images)s->dimensions[0];
-            int icolors = %(images)s->dimensions[1];
-            int irows = %(images)s->dimensions[2];
-            int icols = %(images)s->dimensions[3];
+            int icount = PyArray_DIMS(%(images)s)[0];
+            int icolors = PyArray_DIMS(%(images)s)[1];
+            int irows = PyArray_DIMS(%(images)s)[2];
+            int icols = PyArray_DIMS(%(images)s)[3];
             
-            int frows = ((dtype_%(frows)s *) (%(frows)s->data))[0];
-            int fcols = ((dtype_%(fcols)s *) (%(fcols)s->data))[0];
+            int frows = ((dtype_%(frows)s *) (PyArray_BYTES(%(frows)s)))[0];
+            int fcols = ((dtype_%(fcols)s *) (PyArray_BYTES(%(fcols)s)))[0];
             
             int module_stride = %(module_stride)s;
             
@@ -842,15 +842,15 @@ class WeightActs(Base):
                                 
             // Ensure output array is of the proper format
             
-            if (NULL == %(output)s || 
-               (%(output)s->dimensions[0] != fmodules) || 
-               (%(output)s->dimensions[1] != filters_per_module) || 
-               (%(output)s->dimensions[2] != icolors) || 
-               (%(output)s->dimensions[3] != frows) || 
-               (%(output)s->dimensions[4] != fcols) ||
-               (!PyArray_ISCARRAY(%(output)s)) || 
-               ((%(output)s->descr->type_num != PyArray_DOUBLE) && 
-                (%(output)s->descr->type_num != PyArray_FLOAT)))
+            if (NULL == %(output)s ||
+               (PyArray_DIMS(%(output)s)[0] != fmodules) ||
+               (PyArray_DIMS(%(output)s)[1] != filters_per_module) ||
+               (PyArray_DIMS(%(output)s)[2] != icolors) ||
+               (PyArray_DIMS(%(output)s)[3] != frows) ||
+               (PyArray_DIMS(%(output)s)[4] != fcols) ||
+               (!PyArray_ISCARRAY(%(output)s)) ||
+               ((PyArray_TYPE(%(output)s) != NPY_DOUBLE) &&
+                (PyArray_TYPE(%(output)s) != NPY_FLOAT)))
             {
                 // The output array is of an invalid format.
                 
@@ -864,7 +864,7 @@ class WeightActs(Base):
                 outputDims[4] = fcols;
             
                 %(output)s = (PyArrayObject*)PyArray_ZEROS(5, outputDims, 
-                                             %(images)s->descr->type_num, 0);
+                                             PyArray_TYPE(%(images)s), 0);
                                              
                 if(!%(output)s) {
                     PyErr_SetString(PyExc_MemoryError, 
@@ -931,14 +931,14 @@ class WeightActs(Base):
             
             PyArrayObject* img_C = 
                     (PyArrayObject*)PyArray_EMPTY(2, dotPDims,
-                                                  %(output)s->descr->type_num,
+                                                  PyArray_TYPE(%(output)s),
                                                   0);
             if(!img_C) {
                 PyErr_SetString(PyExc_MemoryError, 
                                 "failed to alloc memory for img_C");
                 %(fail)s;
             }
-            dtype_%(output)s* img_C_ptr = (dtype_%(output)s*)(img_C->data);
+            dtype_%(output)s* img_C_ptr = (dtype_%(output)s*)(PyArray_BYTES(img_C));
             
             
             // Allocate memory for the array in which the content of hidacts
@@ -952,7 +952,7 @@ class WeightActs(Base):
                                                              
             PyArrayObject* hid_C = PyArray_GETCONTIGUOUS(hid_C_view2);
             
-            dtype_%(output)s* hid_C_ptr = (dtype_%(output)s*)(hid_C->data);
+            dtype_%(output)s* hid_C_ptr = (dtype_%(output)s*)(PyArray_BYTES(hid_C));
             
             npy_intp hidC_count_stride = PyArray_STRIDE(hid_C, 4) /
                                          PyArray_ITEMSIZE(hid_C);
@@ -1301,31 +1301,31 @@ class ImgActs(Base):
         
         // Validate the shape and the data type of the input tensors
         
-        if (%(hidacts)s->nd != 5){
+        if (PyArray_NDIM(%(hidacts)s) != 5){
             PyErr_SetString(PyExc_ValueError, "hidacts not a 5d tensor");
             %(fail)s;
         }
         
-        if (%(filters)s->nd != 5){
+        if (PyArray_NDIM(%(filters)s) != 5){
             PyErr_SetString(PyExc_ValueError, "filters not a 5d tensor");
             %(fail)s;
         }
         
-        if ((%(hidacts)s->descr->type_num != PyArray_DOUBLE) && 
-            (%(hidacts)s->descr->type_num != PyArray_FLOAT)){
+        if ((PyArray_TYPE(%(hidacts)s) != NPY_DOUBLE) &&
+            (PyArray_TYPE(%(hidacts)s) != NPY_FLOAT)){
             PyErr_SetString(PyExc_TypeError, 
                             "hidacts type should be float32 or float64");
             %(fail)s;
         }
         
-        if ((%(filters)s->descr->type_num != PyArray_DOUBLE) && 
-            (%(filters)s->descr->type_num != PyArray_FLOAT)){
+        if ((PyArray_TYPE(%(filters)s) != NPY_DOUBLE) &&
+            (PyArray_TYPE(%(filters)s) != NPY_FLOAT)){
             PyErr_SetString(PyExc_TypeError, 
                             "filters type should be float32 or float64");
             %(fail)s;
         }
         
-        if (%(filters)s->descr->type_num != %(hidacts)s->descr->type_num){
+        if (PyArray_TYPE(%(filters)s) != PyArray_TYPE(%(hidacts)s)){
             PyErr_SetString(PyExc_TypeError,
                             "filters and hidacts should have the same type");
             %(fail)s;
@@ -1335,20 +1335,20 @@ class ImgActs(Base):
         
             // Extract input variables
             
-            const int hcount = %(hidacts)s->dimensions[0];
-            const int fmodules = %(hidacts)s->dimensions[1];
-            const int filters_per_module = %(hidacts)s->dimensions[2];
-            const int hrows = %(hidacts)s->dimensions[3];
-            const int hcols = %(hidacts)s->dimensions[4];
+            const int hcount = PyArray_DIMS(%(hidacts)s)[0];
+            const int fmodules = PyArray_DIMS(%(hidacts)s)[1];
+            const int filters_per_module = PyArray_DIMS(%(hidacts)s)[2];
+            const int hrows = PyArray_DIMS(%(hidacts)s)[3];
+            const int hcols = PyArray_DIMS(%(hidacts)s)[4];
             
-            const int fmodules_ = %(filters)s->dimensions[0];
-            const int filters_per_module_ = %(filters)s->dimensions[1];
-            const int fcolors = %(filters)s->dimensions[2];
-            const int frows = %(filters)s->dimensions[3];
-            const int fcols = %(filters)s->dimensions[4];
+            const int fmodules_ = PyArray_DIMS(%(filters)s)[0];
+            const int filters_per_module_ = PyArray_DIMS(%(filters)s)[1];
+            const int fcolors = PyArray_DIMS(%(filters)s)[2];
+            const int frows = PyArray_DIMS(%(filters)s)[3];
+            const int fcols = PyArray_DIMS(%(filters)s)[4];
             
-            const int irows = ((dtype_%(irows)s *) (%(irows)s->data))[0];
-            const int icols = ((dtype_%(icols)s *) (%(icols)s->data))[0];
+            const int irows = ((dtype_%(irows)s *) (PyArray_BYTES(%(irows)s)))[0];
+            const int icols = ((dtype_%(icols)s *) (PyArray_BYTES(%(icols)s)))[0];
             
             const int module_stride = %(module_stride)s;
             
@@ -1402,14 +1402,14 @@ class ImgActs(Base):
             
                     
             // Ensure output array is of the proper format            
-            if (NULL == %(output)s || 
-                    (%(output)s->dimensions[0] != hcount) || 
-                    (%(output)s->dimensions[1] != fcolors) || 
-                    (%(output)s->dimensions[2] != irows) || 
-                    (%(output)s->dimensions[3] != icols) || 
-                    (!PyArray_ISCARRAY(%(output)s)) || 
-                    ((%(output)s->descr->type_num != PyArray_DOUBLE) && 
-                     (%(output)s->descr->type_num != PyArray_FLOAT)))
+            if (NULL == %(output)s ||
+                    (PyArray_DIMS(%(output)s)[0] != hcount) ||
+                    (PyArray_DIMS(%(output)s)[1] != fcolors) ||
+                    (PyArray_DIMS(%(output)s)[2] != irows) ||
+                    (PyArray_DIMS(%(output)s)[3] != icols) ||
+                    (!PyArray_ISCARRAY(%(output)s)) ||
+                    ((PyArray_TYPE(%(output)s) != NPY_DOUBLE) &&
+                     (PyArray_TYPE(%(output)s) != NPY_FLOAT)))
             {
                 // The output array is of an invalid format.
                 
@@ -1418,7 +1418,7 @@ class ImgActs(Base):
                 npy_intp outputDims[4] = {hcount, fcolors, irows, icols};
             
                 %(output)s = (PyArrayObject*)PyArray_ZEROS(4, outputDims, 
-                                             %(filters)s->descr->type_num, 0);
+                                             PyArray_TYPE(%(filters)s), 0);
                 if(!%(output)s) {
                     PyErr_SetString(PyExc_MemoryError, 
                                     "failed to alloc memory for output");
@@ -1503,7 +1503,7 @@ class ImgActs(Base):
             npy_intp dotPDims[2] = {hcount, fcolors * frows * fcols};
             PyArrayObject* dotPResults = 
                 (PyArrayObject*) PyArray_EMPTY(2, dotPDims,
-                                               %(output)s->descr->type_num,
+                                               PyArray_TYPE(%(output)s),
                                                0);
                                                
             if(!dotPResults) {
@@ -1523,7 +1523,7 @@ class ImgActs(Base):
             
             dtype_%(hidacts)s* hid_C_ptr = (dtype_%(hidacts)s*)PyArray_DATA(hid_C);
 
-            dtype_%(output)s* dotp = (dtype_%(output)s*)(dotPResults->data);
+            dtype_%(output)s* dotp = (dtype_%(output)s*)(PyArray_BYTES(dotPResults));
 
 
             for(int hR=0; hR < hrows; hR++){
