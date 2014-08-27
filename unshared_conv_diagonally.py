@@ -10,6 +10,7 @@ import StringIO
 from theano.tensor import blas
 from theano import gof, tensor, scalar
 from theano.gradient import grad_undefined
+from theano.gof.utils import MethodNotDefined
 
 
 def any_symbolic(*args):
@@ -32,6 +33,13 @@ class Base(theano.OpenMPOp):
                  openmp=None):
         super(Base, self).__init__(openmp=openmp)
         self.module_stride = module_stride
+        try:
+            self.c_headers()
+        except MethodNotDefined:
+            raise Exception(
+                "Theano version too hold. Update to something"
+                " more recent then 0.6. Use the developement"
+                " version if needed.")
 
     def _attributes(self):
         return (
