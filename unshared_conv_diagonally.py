@@ -84,6 +84,9 @@ class FilterActs(Base):
             self.fcols,
             self.frows)
 
+    def c_code_cache_version(self):
+        return (1,)
+
     def c_support_code(self):
         return blas.blas_header_text()
 
@@ -707,6 +710,9 @@ class WeightActs(Base):
                             (filters_per_module, fcolors, frows, fcols))
         ostor[0][0] = filters
 
+    def c_code_cache_version(self):
+        return (1,)
+
     def c_support_code(self):
         return blas.blas_header_text()
 
@@ -1257,6 +1263,9 @@ class ImgActs(Base):
                                     (icount, fcolors, frows, fcols))
         ostor[0][0] = images
         # print 'exiting ImgActs perform'
+
+    def c_code_cache_version(self):
+        return (1,)
 
     def c_support_code(self):
         return blas.blas_header_text()
