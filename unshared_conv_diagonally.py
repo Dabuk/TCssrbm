@@ -1130,10 +1130,10 @@ class WeightActs(Base):
                 images, gfilters)
         gfrows = grad_undefined(
             self, 2, frows,
-            "WeightActs grad is not defined again frows input")
+            "WeightActs grad is not defined against frows input")
         gfcols = grad_undefined(
             self, 2, frows,
-            "WeightActs grad is not defined again fcols input")
+            "WeightActs grad is not defined against fcols input")
         return [gimages, ghidacts, gfrows, gfcols]
 
     def infer_shape(self, node, shapes):
@@ -1647,8 +1647,8 @@ class ImgActs(Base):
                 gimages, filters)
         girows = grad_undefined(
             self, 2, irows,
-            "WeightActs grad is not defined again irows input")
+            "WeightActs grad is not defined against irows input")
         gicols = grad_undefined(
             self, 2, irows,
-            "WeightActs grad is not defined again icols input")
+            "WeightActs grad is not defined against icols input")
         return [gfilters, ghidacts, girows, gicols]
