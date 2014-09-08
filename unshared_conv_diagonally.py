@@ -37,7 +37,7 @@ class Base(theano.OpenMPOp):
             self.c_headers()
         except MethodNotDefined:
             raise Exception(
-                "Theano version too hold. Update to something"
+                "Theano version too old. Update to something"
                 " more recent then 0.6. Use the developement"
                 " version if needed.")
 
